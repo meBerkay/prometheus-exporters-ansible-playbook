@@ -20,7 +20,7 @@ NGINX Exporter: v1.3.0
 🛠 Installation
 Clone this repository:
 
-git clone https://github.com/your-repo-name/prometheus-exporters-setup.git
+git clone https://github.com/meBerkay/prometheus-exporters-ansible-playbook/
 cd prometheus-exporters-setup
 
 Run the playbook:
