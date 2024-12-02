@@ -32,13 +32,18 @@ Download and install each exporter.
 Set up systemd services for each exporter.
 Ensure the corresponding services (Redis, MySQL, NGINX) are running before installing the exporters.
 Open the required firewall ports for each exporter.
+
 ⚙️ Configuration
 The following variables can be modified in the playbook:
 
 node_exporter_version: Version of Node Exporter to install.
+
 redis_exporter_version: Version of Redis Exporter.
+
 mysql_exporter_version: Version of MySQL Exporter.
+
 nginx_exporter_version: Version of NGINX Exporter.
+
 These variables are set at the top of the playbook and can be adjusted as needed for your environment.
 
 🔒 Firewall Setup
