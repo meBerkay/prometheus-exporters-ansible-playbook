@@ -1,0 +1,333 @@
+---
+- name: Setup Node Exporters and related services
+  hosts: all
+  become: yes
+  vars:
+    node_exporter_version: "1.8.2"
+    redis_exporter_version: "v1.45.0"
+    mysql_exporter_version: "v0.14.0"
+    nginx_exporter_version: "v1.3.0"
+    
+    node_exporter_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    redis_exporter_url: "https://github.com/oliver006/redis_exporter/releases/download/{{ redis_exporter_version }}/redis_exporter-{{ redis_exporter_version }}.linux-amd64.tar.gz"
+    mysqld_exporter_url: "https://github.com/prometheus/mysqld_exporter/releases/download/{{ mysql_exporter_version }}/mysqld_exporter-{{ mysql_exporter_version }}.linux-amd64.tar.gz"
+    nginx_exporter_url: "https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/{{ nginx_exporter_version }}/nginx-prometheus-exporter_{{ nginx_exporter_version }}_linux_amd64.tar.gz"
+
+  tasks:
+    - name: Install required packages
+      yum:
+        name:
+          - wget
+          - tar
+        state: present
+
+    # Node Exporter Installation
+    - name: Install Node Exporter
+      block:
+        - name: Download Node Exporter
+          get_url:
+            url: "{{ node_exporter_url }}"
+            dest: "/tmp/node_exporter.tar.gz"
+        
+        - name: Extract Node Exporter
+          unarchive:
+            src: "/tmp/node_exporter.tar.gz"
+            dest: "/tmp"
+            remote_src: yes
+
+        - name: Move Node Exporter to /usr/local/bin
+          command:
+            cmd: mv /tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter /usr/local/bin/
+
+        - name: Make Node Exporter executable
+          file:
+            path: /usr/local/bin/node_exporter
+            mode: '0755'
+
+        - name: Create node_exporter user
+          user:
+            name: node_exporter
+            shell: /bin/false
+            system: yes
+
+        - name: Create Node Exporter systemd service
+          copy:
+            content: |
+              [Unit]
+              Description=Node Exporter
+              After=network.target
+
+              [Service]
+              User=node_exporter
+              Group=node_exporter
+              ExecStart=/usr/local/bin/node_exporter
+
+              [Install]
+              WantedBy=default.target
+            dest: /etc/systemd/system/node_exporter.service
+            mode: '0644'
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+
+        - name: Start Node Exporter service
+          systemd:
+            name: node_exporter
+            state: started
+            enabled: yes
+
+        - name: Open firewall for Node Exporter
+          firewalld:
+            service: node_exporter
+            permanent: yes
+            state: enabled
+            immediate: yes
+
+      when: ansible_facts.services.node_exporter is not defined
+
+    # Redis Exporter Installation
+    - name: Install Redis Exporter
+      block:
+        - name: Check if Redis service is active
+          systemd:
+            name: redis
+            state: started
+          register: redis_service_status
+          ignore_errors: true
+
+        - name: Download Redis Exporter if Redis is running
+          get_url:
+            url: "{{ redis_exporter_url }}"
+            dest: "/tmp/redis_exporter.tar.gz"
+          when: redis_service_status.state == 'started'
+
+        - name: Extract Redis Exporter
+          unarchive:
+            src: "/tmp/redis_exporter.tar.gz"
+            dest: "/tmp"
+            remote_src: yes
+          when: redis_service_status.state == 'started'
+
+        - name: Move Redis Exporter to /usr/local/bin
+          command:
+            cmd: mv /tmp/redis_exporter-{{ redis_exporter_version }}.linux-amd64/redis_exporter /usr/local/bin/
+          when: redis_service_status.state == 'started'
+
+        - name: Make Redis Exporter executable
+          file:
+            path: /usr/local/bin/redis_exporter
+            mode: '0755'
+          when: redis_service_status.state == 'started'
+
+        - name: Create redis_exporter user
+          user:
+            name: redis_exporter
+            shell: /bin/false
+            system: yes
+          when: redis_service_status.state == 'started'
+
+        - name: Create Redis Exporter systemd service
+          copy:
+            content: |
+              [Unit]
+              Description=Redis Exporter
+              Documentation=https://github.com/oliver006/redis_exporter
+
+              [Service]
+              ExecStart=/usr/local/bin/redis_exporter --redis.addr=redis://localhost:6379
+              User=redis_exporter
+              Group=redis_exporter
+              Restart=always
+
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/redis_exporter.service
+            mode: '0644'
+          when: redis_service_status.state == 'started'
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+          when: redis_service_status.state == 'started'
+
+        - name: Start Redis Exporter service
+          systemd:
+            name: redis_exporter
+            state: started
+            enabled: yes
+          when: redis_service_status.state == 'started'
+
+        - name: Open firewall for Redis Exporter
+          firewalld:
+            service: redis_exporter
+            permanent: yes
+            state: enabled
+            immediate: yes
+          when: redis_service_status.state == 'started'
+
+      when: redis_service_status.state == 'started'
+
+    # MySQL Exporter Installation
+    - name: Install MySQL Exporter
+      block:
+        - name: Check if MySQL service is active
+          systemd:
+            name: mysql
+            state: started
+          register: mysql_service_status
+          ignore_errors: true
+
+        - name: Download MySQL Exporter if MySQL is running
+          get_url:
+            url: "{{ mysqld_exporter_url }}"
+            dest: "/tmp/mysqld_exporter.tar.gz"
+          when: mysql_service_status.state == 'started'
+
+        - name: Extract MySQL Exporter
+          unarchive:
+            src: "/tmp/mysqld_exporter.tar.gz"
+            dest: "/tmp"
+            remote_src: yes
+          when: mysql_service_status.state == 'started'
+
+        - name: Move MySQL Exporter to /usr/local/bin
+          command:
+            cmd: mv /tmp/mysqld_exporter-{{ mysql_exporter_version }}.linux-amd64/mysqld_exporter /usr/local/bin/
+          when: mysql_service_status.state == 'started'
+
+        - name: Make MySQL Exporter executable
+          file:
+            path: /usr/local/bin/mysqld_exporter
+            mode: '0755'
+          when: mysql_service_status.state == 'started'
+
+        - name: Create mysqld_exporter user
+          user:
+            name: mysqld_exporter
+            shell: /bin/false
+            system: yes
+          when: mysql_service_status.state == 'started'
+
+        - name: Create MySQL Exporter systemd service
+          copy:
+            content: |
+              [Unit]
+              Description=MySQL Exporter
+              Documentation=https://github.com/prometheus/mysqld_exporter
+
+              [Service]
+              ExecStart=/usr/local/bin/mysqld_exporter --web.listen-address=0.0.0.0:9104
+              User=mysqld_exporter
+              Group=mysqld_exporter
+              Restart=always
+
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/mysqld_exporter.service
+            mode: '0644'
+          when: mysql_service_status.state == 'started'
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+          when: mysql_service_status.state == 'started'
+
+        - name: Start MySQL Exporter service
+          systemd:
+            name: mysqld_exporter
+            state: started
+            enabled: yes
+          when: mysql_service_status.state == 'started'
+
+        - name: Open firewall for MySQL Exporter
+          firewalld:
+            service: mysqld_exporter
+            permanent: yes
+            state: enabled
+            immediate: yes
+          when: mysql_service_status.state == 'started'
+
+      when: mysql_service_status.state == 'started'
+
+    # NGINX Exporter Installation
+    - name: Install NGINX Exporter
+      block:
+        - name: Check if NGINX service is active
+          systemd:
+            name: nginx
+            state: started
+          register: nginx_service_status
+          ignore_errors: true
+
+        - name: Download NGINX Exporter if NGINX is running
+          get_url:
+            url: "{{ nginx_exporter_url }}"
+            dest: "/tmp/nginx_exporter.tar.gz"
+          when: nginx_service_status.state == 'started'
+
+        - name: Extract NGINX Exporter
+          unarchive:
+            src: "/tmp/nginx_exporter.tar.gz"
+            dest: "/tmp"
+            remote_src: yes
+          when: nginx_service_status.state == 'started'
+
+        - name: Move NGINX Exporter to /usr/local/bin
+          command:
+            cmd: mv /tmp/nginx-prometheus-exporter_{{ nginx_exporter_version }}_linux_amd64/nginx-prometheus-exporter /usr/local/bin/
+          when: nginx_service_status.state == 'started'
+
+        - name: Make NGINX Exporter executable
+          file:
+            path: /usr/local/bin/nginx-prometheus-exporter
+            mode: '0755'
+          when: nginx_service_status.state == 'started'
+
+        - name: Create nginx_exporter user
+          user:
+            name: nginx_exporter
+            shell: /bin/false
+            system: yes
+          when: nginx_service_status.state == 'started'
+
+        - name: Create NGINX Exporter systemd service
+          copy:
+            content: |
+              [Unit]
+              Description=NGINX Exporter
+              Documentation=https://github.com/nginxinc/nginx-prometheus-exporter
+
+              [Service]
+              ExecStart=/usr/local/bin/nginx-prometheus-exporter -nginx.scrape-uri=http://localhost:8080/stub_status
+              User=nginx_exporter
+              Group=nginx_exporter
+              Restart=always
+
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/nginx_exporter.service
+            mode: '0644'
+          when: nginx_service_status.state == 'started'
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+          when: nginx_service_status.state == 'started'
+
+        - name: Start NGINX Exporter service
+          systemd:
+            name: nginx_exporter
+            state: started
+            enabled: yes
+          when: nginx_service_status.state == 'started'
+
+        - name: Open firewall for NGINX Exporter
+          firewalld:
+            service: nginx_exporter
+            permanent: yes
+            state: enabled
+            immediate: yes
+          when: nginx_service_status.state == 'started'
+
+      when: nginx_service_status.state == 'started'
